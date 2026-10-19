@@ -3,7 +3,9 @@ name: Build BatteryScope APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 permissions:
   contents: read
@@ -11,23 +13,34 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Find and extract project archive
+        shell: bash
         run: |
-          ZIP="$(find . -maxdepth 2 -name 'BatteryScope-cloud-build.zip' -print -quit)"
+          set -e
+          ZIP="$(find . -maxdepth 2 -type f -name '*.zip' -print -quit)"
           if [ -z "$ZIP" ]; then
-            ZIP="$(find . -maxdepth 2 -name '*.zip' -print -quit)"
+            echo "ERROR: Project ZIP archive was not found."
+            exit 1
           fi
-          test -n "$ZIP"
-          mkdir source
+
+          mkdir -p source
           unzip -q "$ZIP" -d source
-          PROJECT="$(find source -name settings.gradle.kts -print -quit)"
-          test -n "$PROJECT"
-          cd "$(dirname "$PROJECT")"
-          echo "PROJECT_DIR=$PWD" >> "$GITHUB_ENV"
+
+          PROJECT_FILE="$(find source -type f -name settings.gradle.kts -print -quit)"
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERROR: settings.gradle.kts was not found inside the ZIP."
+            find source -maxdepth 4 -type f
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$PROJECT_FILE")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found Android project in $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -42,14 +55,19 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-36
+            build-tools;36.0.0
 
-      - name: Install Android SDK
-        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -e
+          gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
-      - name: Build APK
-        run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
-
-      - name: Save APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BatteryScope-debug-apk
