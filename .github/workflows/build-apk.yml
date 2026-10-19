@@ -1,0 +1,58 @@
+name: Build BatteryScope APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find and extract project archive
+        run: |
+          ZIP="$(find . -maxdepth 2 -name 'BatteryScope-cloud-build.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            ZIP="$(find . -maxdepth 2 -name '*.zip' -print -quit)"
+          fi
+          test -n "$ZIP"
+          mkdir source
+          unzip -q "$ZIP" -d source
+          PROJECT="$(find source -name settings.gradle.kts -print -quit)"
+          test -n "$PROJECT"
+          cd "$(dirname "$PROJECT")"
+          echo "PROJECT_DIR=$PWD" >> "$GITHUB_ENV"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Build APK
+        run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
+
+      - name: Save APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BatteryScope-debug-apk
+          path: source/**/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
